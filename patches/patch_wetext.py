@@ -1,21 +1,47 @@
-"""Patch wetext to prefer the local modelscope cache and skip all network calls
-when the FST resources are already present (avoids ModelScope rate-limit 403s
-that otherwise break frontend init even with a complete local cache)."""
+"""Patch wetext so frontend init is offline-first and never hard-fails on
+ModelScope metadata APIs when a complete local cache exists.
+
+- Uses modelscope's official local_files_only=True first
+- Verifies the FSTs wetext actually needs exist on disk
+- Falls back to the original online snapshot_download for fresh deployments
+"""
 
 import pathlib
 import wetext
 
-p = pathlib.Path(wetext.__file__)
-s = p.read_text()
+pkg_dir = pathlib.Path(wetext.__file__).resolve().parent
+target = pkg_dir / "wetext.py"
+s = target.read_text()
 
-old = 'repo_dir = snapshot_download("pengzhendong/wetext")'
-new = (
-    'import os as _os; '
-    '_local = _os.path.expanduser("~/.cache/modelscope/hub/pengzhendong/wetext"); '
-    'repo_dir = _local if _os.path.exists(_os.path.join(_local, "zh", "tn", "tagger.fst")) '
-    'else snapshot_download("pengzhendong/wetext")'
-)
+OLD = 'repo_dir = snapshot_download("pengzhendong/wetext")'
+NEW = "repo_dir = _wetext_repo_dir()"
 
-assert old in s, "wetext.py pattern not found — wetext package changed upstream"
-p.write_text(s.replace(old, new))
-print("patched wetext: local cache first, network only as fallback")
+HELPER = '''
+
+def _wetext_repo_dir():
+    """Offline-first wetext resource dir; online download only as fallback."""
+    import os
+    try:
+        d = snapshot_download("pengzhendong/wetext", local_files_only=True)
+        if os.path.exists(os.path.join(d, "zh", "tn", "tagger.fst")):
+            return d
+    except Exception:
+        pass
+    return snapshot_download("pengzhendong/wetext")
+
+'''
+
+IMPORT_ANCHOR = "from modelscope import snapshot_download"
+
+if OLD not in s:
+    # diagnostic: show what the file actually contains around snapshot_download
+    for i, line in enumerate(s.splitlines(), 1):
+        if "snapshot_download" in line:
+            print(f"  L{i}: {line!r}")
+    raise SystemExit(f"pattern not found in {target} — wetext package changed upstream")
+
+s = s.replace(OLD, NEW)
+assert IMPORT_ANCHOR in s, "modelscope import anchor not found"
+s = s.replace(IMPORT_ANCHOR, IMPORT_ANCHOR + "\n" + HELPER, 1)
+target.write_text(s)
+print(f"patched {target}: offline-first wetext resource loading")
