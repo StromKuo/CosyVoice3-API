@@ -73,6 +73,12 @@ RUN pip install --no-cache-dir "setuptools<71" wheel cython "numpy==1.26.4" && \
 # Install API dependencies
 RUN pip install --no-cache-dir fastapi uvicorn[standard] python-multipart soundfile
 
+# Patch wetext: use the local modelscope cache when FST resources are already
+# downloaded; snapshot_download otherwise hits ModelScope metadata APIs on every
+# start, which fail (403 rate-limit) and disable the text frontend entirely.
+COPY patches/patch_wetext.py /tmp/patch_wetext.py
+RUN python /tmp/patch_wetext.py && rm /tmp/patch_wetext.py
+
 # Copy API code
 COPY api/ ./api/
 COPY docker/scripts/entrypoint.sh .
