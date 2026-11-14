@@ -14,6 +14,16 @@ MODEL_DIR = os.getenv("MODEL_DIR", "FunAudioLLM/Fun-CosyVoice3-0.5B-2512")
 FP16 = os.getenv("FP16", "true").lower() == "true"
 SAMPLE_RATE = 24000
 
+# CosyVoice3LM requires the <|endofprompt|> token (id 151646) at the end of
+# prompt_text; without it the LLM decode thread asserts and synthesis produces
+# zero tokens (which later surfaces as a misleading conv kernel-size error).
+ENDOFPROMPT = "<|endofprompt|>"
+
+
+def _ensure_endofprompt(prompt_text: str) -> str:
+    return prompt_text if ENDOFPROMPT in prompt_text else prompt_text + ENDOFPROMPT
+
+
 _model = None
 
 
@@ -123,7 +133,7 @@ async def clone_speech(
         tmp_path = tmp.name
 
     try:
-        audio_data = _clone(input, prompt_text, tmp_path, speed)
+        audio_data = _clone(input, _ensure_endofprompt(prompt_text), tmp_path, speed)
     finally:
         os.unlink(tmp_path)
 
@@ -158,7 +168,7 @@ async def register_voice(
         tmp_path = tmp.name
 
     try:
-        _model.add_zero_shot_spk(prompt_text, tmp_path, voice_id)
+        _model.add_zero_shot_spk(_ensure_endofprompt(prompt_text), tmp_path, voice_id)
         _model.save_spkinfo()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to register voice: {e}")
@@ -190,14 +200,17 @@ def _get_voices() -> list:
 
 
 def _synthesize(text: str, voice: str, speed: float) -> np.ndarray:
+    # Registered voices are stored as zero-shot speaker entries in spk2info, so
+    # synthesis must go through inference_zero_shot with zero_shot_spk_id;
+    # inference_sft expects a different spk2info layout (KeyError 'embedding').
     all_audio = []
-    for output in _model.inference_sft(text, voice, stream=False, speed=speed):
+    for output in _model.inference_zero_shot(text, "", "", zero_shot_spk_id=voice, stream=False, speed=speed):
         all_audio.append(output["tts_speech"].numpy().flatten())
     return np.concatenate(all_audio)
 
 
 def _stream_synthesis(text: str, voice: str, speed: float):
-    for output in _model.inference_sft(text, voice, stream=True, speed=speed):
+    for output in _model.inference_zero_shot(text, "", "", zero_shot_spk_id=voice, stream=True, speed=speed):
         chunk = output["tts_speech"].numpy().flatten()
         chunk_clipped = np.clip(chunk, -1.0, 1.0)
         yield (chunk_clipped * 32767).astype(np.int16).tobytes()

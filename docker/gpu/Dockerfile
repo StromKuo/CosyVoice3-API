@@ -1,7 +1,9 @@
 FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel
 
 ARG COSYVOICE_REPO=https://github.com/FunAudioLLM/CosyVoice.git
-ARG COSYVOICE_BRANCH=main
+# Pin to the exact upstream commit validated on RTX 4060 Ti (16GB);
+# unpinned main may drift and break the sed patch below.
+ARG COSYVOICE_REF=074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -11,10 +13,20 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Clone CosyVoice repo
-RUN git clone --depth 1 -b ${COSYVOICE_BRANCH} ${COSYVOICE_REPO} cosyvoice_repo && \
+# Clone CosyVoice repo at a pinned commit
+RUN git init cosyvoice_repo && \
     cd cosyvoice_repo && \
-    git submodule update --init --recursive --depth 1
+    git remote add origin ${COSYVOICE_REPO} && \
+    git fetch --depth 1 origin ${COSYVOICE_REF} && \
+    git checkout FETCH_HEAD && \
+    git submodule update --init --recursive --depth 1 && \
+    cd /app
+
+# torchaudio 2.9 removed non-torchcodec backends, but upstream still calls
+# torchaudio.load(..., backend='soundfile'); patch load_wav to use soundfile
+# directly. grep guard fails the build if the upstream line ever changes.
+RUN sed -i "s|speech, sample_rate = torchaudio.load(wav, backend='soundfile')|import soundfile as _sf; _data, sample_rate = _sf.read(wav, dtype='float32', always_2d=True); speech = torch.from_numpy(_data.T.copy())|" cosyvoice_repo/cosyvoice/utils/file_utils.py && \
+    grep -q "_sf.read" cosyvoice_repo/cosyvoice/utils/file_utils.py
 
 # Pin transformers to 4.51.3 (5.x breaks CosyVoice3 Qwen2 attention)
 RUN pip install --no-cache-dir transformers==4.51.3
