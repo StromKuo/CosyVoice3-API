@@ -24,9 +24,11 @@ RUN git init cosyvoice_repo && \
 
 # torchaudio 2.9 removed non-torchcodec backends, but upstream still calls
 # torchaudio.load(..., backend='soundfile'); patch load_wav to use soundfile
-# directly. grep guard fails the build if the upstream line ever changes.
+# directly. Guards fail the build if the upstream line ever changes: the old
+# call must be gone and the replacement must appear exactly once.
 RUN sed -i "s|speech, sample_rate = torchaudio.load(wav, backend='soundfile')|import soundfile as _sf; _data, sample_rate = _sf.read(wav, dtype='float32', always_2d=True); speech = torch.from_numpy(_data.T.copy())|" cosyvoice_repo/cosyvoice/utils/file_utils.py && \
-    grep -q "_sf.read" cosyvoice_repo/cosyvoice/utils/file_utils.py
+    ! grep -q "torchaudio.load(wav, backend='soundfile')" cosyvoice_repo/cosyvoice/utils/file_utils.py && \
+    [ "$(grep -c "_sf.read" cosyvoice_repo/cosyvoice/utils/file_utils.py)" = "1" ]
 
 # Pin transformers to 4.51.3 (5.x breaks CosyVoice3 Qwen2 attention)
 RUN pip install --no-cache-dir transformers==4.51.3

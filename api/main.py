@@ -14,14 +14,26 @@ MODEL_DIR = os.getenv("MODEL_DIR", "FunAudioLLM/Fun-CosyVoice3-0.5B-2512")
 FP16 = os.getenv("FP16", "true").lower() == "true"
 SAMPLE_RATE = 24000
 
-# CosyVoice3LM requires the <|endofprompt|> token (id 151646) at the end of
-# prompt_text; without it the LLM decode thread asserts and synthesis produces
-# zero tokens (which later surfaces as a misleading conv kernel-size error).
+# CosyVoice3LM requires an instruction prefix terminated by <|endofprompt|>
+# (token 151646) BEFORE the reference transcription — the token separates the
+# instruction zone from the reference text (see upstream example.py and
+# runtime/triton_trtllm usage: "You are a helpful assistant.<|endofprompt|>" +
+# prompt_text). Without it the LLM decode thread asserts and synthesis
+# produces zero tokens.
 ENDOFPROMPT = "<|endofprompt|>"
+DEFAULT_INSTRUCTION = "You are a helpful assistant." + ENDOFPROMPT
 
 
 def _ensure_endofprompt(prompt_text: str) -> str:
-    return prompt_text if ENDOFPROMPT in prompt_text else prompt_text + ENDOFPROMPT
+    return prompt_text if ENDOFPROMPT in prompt_text else DEFAULT_INSTRUCTION + prompt_text
+
+
+def _validate_speed(speed: float, stream: bool = False) -> float:
+    if not (0.25 <= speed <= 4.0):
+        raise HTTPException(status_code=400, detail=f"speed must be within [0.25, 4.0], got {speed}")
+    if stream and speed != 1.0:
+        raise HTTPException(status_code=400, detail="speed != 1.0 is not supported with stream=true (upstream limitation)")
+    return speed
 
 
 _model = None
@@ -102,12 +114,14 @@ async def text_to_speech(req: SpeechRequest):
         raise HTTPException(status_code=400, detail=f"Voice '{voice}' not found. Available: {_get_voices()}")
 
     if req.stream:
+        _validate_speed(req.speed, stream=True)
         return StreamingResponse(
             _stream_synthesis(req.input, voice, req.speed),
             media_type="audio/pcm",
             headers={"X-Sample-Rate": str(SAMPLE_RATE), "X-Channels": "1", "X-Bit-Depth": "16"},
         )
 
+    _validate_speed(req.speed)
     audio_data = _synthesize(req.input, voice, req.speed)
     wav_bytes = _to_wav(audio_data)
     return Response(content=wav_bytes, media_type="audio/wav")
@@ -126,6 +140,7 @@ async def clone_speech(
     if not input.strip():
         raise HTTPException(status_code=400, detail="Input text is empty")
 
+    _validate_speed(speed)
     prompt_bytes = await prompt_wav.read()
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:

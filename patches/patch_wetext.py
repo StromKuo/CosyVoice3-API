@@ -18,12 +18,18 @@ NEW = "repo_dir = _wetext_repo_dir()"
 
 HELPER = '''
 
+_WETEXT_REQUIRED = (
+    "zh/tn/tagger.fst", "zh/tn/verbalizer.fst",
+    "en/tn/tagger.fst", "en/tn/verbalizer.fst",
+)
+
+
 def _wetext_repo_dir():
     """Offline-first wetext resource dir; online download only as fallback."""
     import os
     try:
         d = snapshot_download("pengzhendong/wetext", local_files_only=True)
-        if os.path.exists(os.path.join(d, "zh", "tn", "tagger.fst")):
+        if all(os.path.isfile(os.path.join(d, f)) for f in _WETEXT_REQUIRED):
             return d
     except Exception:
         pass

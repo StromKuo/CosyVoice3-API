@@ -23,7 +23,7 @@ docker run -d --gpus all --shm-size=2g \
   -v /mnt/user/appdata/cosyvoice3-api/models:/root/.cache/models \
   -e HF_ENDPOINT=https://huggingface.co \
   --name cosyvoice3-api \
-  ghcr.io/hsiang-han/cosyvoice3-api:latest
+  ghcr.io/stromkuo/cosyvoice3-api:latest
 ```
 
 首次启动从 HuggingFace 下载模型（约 10GB）。国内用户设置 `HF_ENDPOINT=https://hf-mirror.com` 加速下载。

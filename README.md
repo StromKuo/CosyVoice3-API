@@ -1,4 +1,14 @@
-# CosyVoice3-API
+# CosyVoice3-API (fork)
+
+> Fork of [hsiang-han/CosyVoice3-API](https://github.com/hsiang-han/CosyVoice3-API) with fixes the upstream image currently needs to work out of the box:
+>
+> 1. `torchaudio.load(backend='soundfile')` fails on torchaudio 2.9 (backend removed) — patched to use `soundfile` directly
+> 2. `prompt_text` needs the official instruction prefix `You are a helpful assistant.<|endofprompt|>` (token 151646) — now added automatically on clone/register
+> 3. registered voices are zero-shot entries; `/v1/audio/speech` now synthesizes via `inference_zero_shot(zero_shot_spk_id=...)` instead of `inference_sft`
+> 4. wetext resources load offline-first (local cache) instead of hitting ModelScope metadata APIs on every start
+>
+> Images publish to `ghcr.io/stromkuo/cosyvoice3-api`. Voices registered with the upstream image must be re-registered after switching (missing the end-of-prompt token).
+
 
 [中文文档](README_zh.md)
 
@@ -23,7 +33,7 @@ docker run -d --gpus all --shm-size=2g \
   -v /mnt/user/appdata/cosyvoice3-api/models:/root/.cache/models \
   -e HF_ENDPOINT=https://huggingface.co \
   --name cosyvoice3-api \
-  ghcr.io/hsiang-han/cosyvoice3-api:latest
+  ghcr.io/stromkuo/cosyvoice3-api:latest
 ```
 
 First start downloads model files (~10GB) from HuggingFace. China users: set `HF_ENDPOINT=https://hf-mirror.com` for faster downloads.

@@ -1,7 +1,7 @@
 name: cosyvoice3-api
 services:
   cosyvoice3:
-    image: ghcr.io/hsiang-han/cosyvoice3-api:latest
+    image: ghcr.io/stromkuo/cosyvoice3-api:latest
     container_name: cosyvoice3-api
     build:
       context: ../..

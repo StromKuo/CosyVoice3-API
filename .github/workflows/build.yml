@@ -6,6 +6,7 @@ on:
     paths:
       - 'api/**'
       - 'docker/**'
+      - 'patches/**'
       - '.github/workflows/build.yml'
   workflow_dispatch:
 
